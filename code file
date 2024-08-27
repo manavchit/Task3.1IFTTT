@@ -1,0 +1,105 @@
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BH1750.h>
+#include <Wire.h>
+
+// WiFi credentials
+const char* wifi_ssid = "Moksh";               // Your WiFi SSID
+const char* wifi_password = "1234567890";       // Your WiFi Password
+
+// IFTTT Webhook settings
+const char* ifttt_server = "maker.ifttt.com";   // IFTTT server host
+const String ifttt_event_name = "sunlight";     // IFTTT event name
+const String ifttt_api_key = "tiO8YLtUvseOZ5vbaUkJk"; // IFTTT webhook key
+
+// Variables to track sunlight state
+bool prev_sunlight_state = false;               // Previous state of sunlight (above or below threshold)
+bool current_sunlight_state = false;            // Current state of sunlight
+float light_intensity = 0.0;                    // Light sensor reading
+
+BH1750 lightSensor;                             // BH1750 light sensor object
+
+void setup() {
+  Serial.begin(9600);                           // Initialize serial communication for debugging
+  
+  Wire.begin();                                 // Initialize I2C bus for the sensor
+  lightSensor.begin();                          // Initialize BH1750 light sensor
+
+  // Connect to WiFi
+  WiFi.begin(wifi_ssid, wifi_password);         // Start connecting to WiFi
+  Serial.print("Connecting to WiFi");
+  
+  // Wait for connection
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" Connected!");
+}
+
+void loop() {
+  light_intensity = lightSensor.readLightLevel(); // Read the current light level
+  
+  // Check if light intensity is above the threshold
+  if (light_intensity > 400) {
+    current_sunlight_state = true;
+    Serial.print("Light intensity: ");
+    Serial.print(light_intensity);
+    Serial.println(" lx - Sufficient sunlight!");
+    
+    // Trigger IFTTT webhook if there is a change in state
+    if(prev_sunlight_state != current_sunlight_state){
+      triggerIFTTTWebhook(light_intensity);
+    }
+    
+    prev_sunlight_state = current_sunlight_state;
+
+  } 
+  else {
+    current_sunlight_state = false;
+    Serial.print("Light intensity: ");
+    Serial.print(light_intensity);
+    Serial.println(" lx - Insufficient sunlight!");
+
+    // Trigger IFTTT webhook if there is a change in state
+    if(prev_sunlight_state != current_sunlight_state){
+      triggerIFTTTWebhook(light_intensity);
+    }
+
+    prev_sunlight_state = current_sunlight_state;
+  }
+
+  delay(50000); // Wait 5 seconds before reading again
+}
+
+// Function to trigger IFTTT webhook
+void triggerIFTTTWebhook(float sensor_value) {
+  WiFiClient client;
+  
+  // Construct the URL for the IFTTT webhook
+  String url = "/trigger/" + ifttt_event_name + "/with/key/" + ifttt_api_key + "?value1=" + String(sensor_value);
+
+  // Connect to IFTTT server
+  if (client.connect(ifttt_server, 80)) {
+    Serial.println("Connecting to IFTTT...");
+
+    // Send HTTP GET request to trigger the webhook
+    client.println("GET " + url + " HTTP/1.1");
+    client.println("Host: " + String(ifttt_server));
+    client.println("Connection: close");
+    client.println();
+
+    // Wait for response from server
+    while (client.connected() || client.available()) {
+      if (client.available()) {
+        String line = client.readStringUntil('\n');
+      }
+    }
+
+    // Disconnect from server
+    client.stop();
+    Serial.println("IFTTT Webhook triggered.");
+  } else {
+    Serial.println("Failed to connect to IFTTT.");
+  }
+}
